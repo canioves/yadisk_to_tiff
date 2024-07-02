@@ -8,6 +8,13 @@ from urllib.parse import urlencode
 
 class ImageMerger:
     def __init__(self, image_paths, row_size, margin):
+        '''
+        Класс для создания TIFF изображения из списка изображений.
+        
+        `image_paths`: список путей изображений
+        `row_size`: количество изображений в одной строке
+        `margin`: размер отступа от краев итогового изображения и расстояние между изображениями
+        '''
         self.image_paths = image_paths
         self.row_size = row_size
         self.margin = margin
@@ -105,7 +112,7 @@ if __name__ == '__main__':
     for root, dirs, files in os.walk('unpacked'):
         if len(dirs) == 0:
             files_paths = [os.path.join(root, file) for file in files]
-            image_merger = ImageMerger(files_paths, 4, 100)
+            image_merger = ImageMerger(files_paths, 3, 50)
             image_merger.merge()
             image_merger.save_merged(file_number)
             file_number += 1

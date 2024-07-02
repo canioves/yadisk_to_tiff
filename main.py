@@ -1,9 +1,78 @@
 import requests
 import os
-import numpy as np
-from PIL import Image, ImageDraw
+import shutil
+from PIL import Image
 from zipfile import ZipFile
 from urllib.parse import urlencode
+
+
+class ImageMerger:
+    def __init__(self, image_paths, row_size, margin):
+        self.image_paths = image_paths
+        self.row_size = row_size
+        self.margin = margin
+        self.image_list = self.__create_image_list()
+        self.column_size = self.__get_column_size()
+        self.canvas = self.__create_canvas()
+        self.matrix = self.__create_matrix()
+
+    def __create_image_list(self):
+        return [Image.open(image) for image in self.image_paths]
+    
+    def __get_column_size(self):
+        image_list_length = len(self.image_list)
+        
+        if self.row_size >= image_list_length:
+            self.row_size = image_list_length
+            column_size = 1
+            return column_size
+        
+        if image_list_length % self.row_size == 0:
+            column_size = image_list_length // self.row_size
+        else:
+            column_size = image_list_length // self.row_size + 1
+        return column_size
+        
+    def __resize_images(self):
+        min_height = min([image.height for image in self.image_list])
+        min_width = min([image.width for image in self.image_list])
+        resize_fn = lambda image: image.resize((int(image.width * min_height / image.height), int(image.height * min_width / image.width)), resample=Image.Resampling.BICUBIC)
+        map(resize_fn, self.image_list)
+        
+    def __create_canvas(self):
+        max_width = max([image.width for image in self.image_list])
+        max_height = max([image.height for image in self.image_list])
+        canvas_width = (max_width + self.margin) * self.row_size + self.margin
+        canvas_height = (max_height + self.margin) * self.column_size + self.margin
+        canvas = Image.new('RGB', (canvas_width, canvas_height), color=(255, 255, 255))
+        return canvas
+    
+    def __create_matrix(self):
+        matrix = []
+        for i in range(self.column_size):
+            column_list = [None] * self.row_size
+            for j in range(self.row_size):
+                idx = i * self.row_size + j
+                if idx == len(self.image_list):
+                    break
+                column_list[j] = self.image_list[idx]
+            matrix.append(column_list)
+        return matrix
+    
+    def merge(self):
+        pos_y = self.margin
+        for i in range(len(self.matrix)):
+            pos_x = self.margin
+            for j in range(len(self.matrix[i])):
+                if self.matrix[i][j] != None:
+                    self.canvas.paste(self.matrix[i][j], (pos_x, pos_y))
+                    pos_x += self.matrix[i][j].width + self.margin
+            pos_y += self.matrix[i][0].height + self.margin
+    
+    def save_merged(self, number):
+        self.canvas.save(f'output/Result {number}.tiff', 'TIFF')
+    
+
 
 def get_download_link(public_url):
     base_url = 'https://cloud-api.yandex.net/v1/disk/public/resources/download?'
@@ -15,62 +84,32 @@ def get_zip(url, filename, path=""):
     with open(os.path.join(path, filename), 'wb') as file:
         download_repsonse = requests.get(url)
         file.write(download_repsonse.content)
+    
+    
+if __name__ == '__main__':
         
-def create_matrix(items_list, row_length, col_length):
-    matrix = []
-    for i in range(col_length):
-        col_list = [None] * row_length
-        for j in range(row_length):
-            idx = i * row_length + j
-            if idx == len(items_list):
-                break
-            col_list[j] = items_list[idx]
-        matrix.append(col_list)
-    return matrix
+    download_link = get_download_link('https://disk.yandex.ru/d/V47MEP5hZ3U1kg')
+    get_zip(download_link, 'data.zip')
 
-def create_canvas(image_list, row_length, col_length, margin):
-    max_width = max([image.width for image in image_list])
-    max_height = max([image.height for image in image_list])
-    canvas_width = (max_width + margin) * row_length + margin
-    canvas_height = (max_height + margin) * col_length + margin
-    
-    canvas = Image.new('RGB', (canvas_width, canvas_height), color=(255, 255, 255))
-    return canvas
+    with ZipFile('data.zip', 'r') as zip:
+        zip.extractall('unpacked')
 
-        
-def merge_images(files_paths, row_length, margin):
-    images = [Image.open(image) for image in files_paths]
-    max_height = max([image.height for image in images])
-    
-    if row_length > len(images):
-        row_length = len(images)
-        col_length = 1
-    else:
-        col_length = len(images) // row_length + 1 if len(images) % row_length > 0 else len(images) // row_length
-    
-    matrix = create_matrix(images, row_length, col_length)
-    canvas = create_canvas(images, row_length, col_length, margin)
-    
-    pos_y = margin
-    for i in range(len(matrix)):
-        pos_x = margin
-        for j in range(len(matrix[i])):
-            if matrix[i][j] != None:
-                canvas.paste(matrix[i][j], (pos_x, pos_y))
-                pos_x += matrix[i][j].width + margin
-        pos_y += max_height + margin
-        
-    canvas.show()
-    
+    try:
+        os.mkdir('output')
+        file_number = 1
+    except:
+        files_list = os.listdir('output')
+        last_file = files_list[len(files_list) - 1]
+        file_number = int(last_file.split(' ')[1].split('.')[0]) + 1
 
-download_link = get_download_link('https://disk.yandex.ru/d/V47MEP5hZ3U1kg')
-get_zip(download_link, 'data.zip')
-
-with ZipFile('data.zip', 'r') as zip:
-    zip.extractall('unpacked')
+    for root, dirs, files in os.walk('unpacked'):
+        if len(dirs) == 0:
+            files_paths = [os.path.join(root, file) for file in files]
+            image_merger = ImageMerger(files_paths, 4, 100)
+            image_merger.merge()
+            image_merger.save_merged(file_number)
+            file_number += 1
+            
+    shutil.rmtree('unpacked')
+    os.remove('data.zip')
     
-for root, dirs, files in os.walk('unpacked'):
-    if len(dirs) == 0:
-        files_paths = [os.path.join(root, file) for file in files]
-        print(root)
-        merge_images(files_paths, 2, 50)
